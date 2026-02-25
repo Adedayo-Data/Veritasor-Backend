@@ -41,6 +41,7 @@ API runs at `http://localhost:3000`. Use `PORT` env var to override.
 | GET    | `/api/health`           | Health check             |
 | GET    | `/api/attestations`     | List attestations (stub) |
 | POST   | `/api/attestations`     | Submit attestation (stub)|
+| GET    | `/api/analytics/periods`| List attested periods for current business (protected) |
 
 ## Project structure
 

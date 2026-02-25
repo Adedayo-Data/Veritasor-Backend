@@ -1,0 +1,261 @@
+openapi: "3.0.0"
+info:
+  title: Veritasor Auth API
+  version: 1.0.0
+  description: Auth endpoints for login, refresh, signup, forgot/reset password, and profile.
+
+paths:
+  /auth/login:
+    post:
+      summary: Login with email and password
+      tags: [auth]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LoginRequest'
+      responses:
+        '200':
+          description: Authentication successful
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthResponse'
+        '401':
+          description: Invalid credentials
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /auth/refresh:
+    post:
+      summary: Refresh access token
+      tags: [auth]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RefreshRequest'
+      responses:
+        '200':
+          description: New access token
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthResponse'
+        '401':
+          description: Invalid refresh token
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /auth/signup:
+    post:
+      summary: Create a new user account
+      tags: [auth]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SignupRequest'
+      responses:
+        '201':
+          description: Account created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/User'
+        '400':
+          description: Invalid input
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /auth/forgot-password:
+    post:
+      summary: Request password reset
+      tags: [auth]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ForgotRequest'
+      responses:
+        '200':
+          description: Reset email queued (generic success response)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenericSuccess'
+
+  /auth/reset-password:
+    post:
+      summary: Reset password using token
+      tags: [auth]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ResetRequest'
+      responses:
+        '200':
+          description: Password reset successful
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenericSuccess'
+        '400':
+          description: Invalid or expired token
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /auth/me:
+    get:
+      summary: Get current authenticated user
+      tags: [auth]
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Current user
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/User'
+        '401':
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+
+  schemas:
+    User:
+      type: object
+      properties:
+        id:
+          type: string
+          example: "user_123"
+        email:
+          type: string
+          format: email
+          example: "alice@example.com"
+        name:
+          type: string
+          example: "Alice"
+        createdAt:
+          type: string
+          format: date-time
+          example: "2026-01-01T12:00:00Z"
+      required: [id, email]
+
+    AuthToken:
+      type: object
+      properties:
+        accessToken:
+          type: string
+          example: "eyJhbGciOi..."
+        tokenType:
+          type: string
+          example: "Bearer"
+        expiresIn:
+          type: integer
+          example: 3600
+        refreshToken:
+          type: string
+          example: "def50200..."
+      required: [accessToken, tokenType, expiresIn]
+
+    AuthResponse:
+      type: object
+      properties:
+        token:
+          $ref: '#/components/schemas/AuthToken'
+        user:
+          $ref: '#/components/schemas/User'
+
+    LoginRequest:
+      type: object
+      properties:
+        email:
+          type: string
+          format: email
+        password:
+          type: string
+          format: password
+      required: [email, password]
+
+    RefreshRequest:
+      type: object
+      properties:
+        refreshToken:
+          type: string
+      required: [refreshToken]
+
+    SignupRequest:
+      type: object
+      properties:
+        name:
+          type: string
+        email:
+          type: string
+          format: email
+        password:
+          type: string
+          format: password
+      required: [email, password]
+
+    ForgotRequest:
+      type: object
+      properties:
+        email:
+          type: string
+          format: email
+      required: [email]
+
+    ResetRequest:
+      type: object
+      properties:
+        token:
+          type: string
+        newPassword:
+          type: string
+          format: password
+      required: [token, newPassword]
+
+    GenericSuccess:
+      type: object
+      properties:
+        message:
+          type: string
+          example: "ok"
+
+    Error:
+      type: object
+      properties:
+        message:
+          type: string
+        code:
+          type: string
+      required: [message]
+
+tags:
+  - name: auth
+    description: Authentication and user account endpoints

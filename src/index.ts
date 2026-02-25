@@ -8,6 +8,7 @@ import {
   apiVersionMiddleware,
   versionResponseMiddleware,
 } from './middleware/apiVersion.js'
+import businessRoutes from './routes/businesses.js'
 
 const app = express()
 const PORT = process.env.PORT ?? 3000
@@ -19,7 +20,8 @@ app.use(versionResponseMiddleware)
 
 app.use('/api/v1/health', healthRouter)
 app.use('/api/v1/attestations', attestationsRouter)
-app.use('/api/v1/auth', authRouter)
+app.use('/api/v1/businesses', businessRoutes)
+app.use('/api/v1/analytics', analyticsRouter)
 
 app.listen(PORT, () => {
   console.log(`Veritasor API listening on http://localhost:${PORT}`)

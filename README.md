@@ -34,14 +34,22 @@ API runs at `http://localhost:3000`. Use `PORT` env var to override.
 | `npm run start`| Run compiled `dist/index.js`   |
 | `npm run lint` | Run ESLint                     |
 
+## API Versioning
+
+All API routes are versioned and mounted under `/api/v1`. This enables future compatibility with `/api/v2`, `/api/v3`, etc.
+
+- **Versioning approach:** Middleware-based with request-level `apiVersion` tracking
+- **Response headers:** Include `API-Version` for client awareness
+- **Current version:** v1
+- **Future extensions:** Add routers to `/api/v2`, `/api/v3` as needed
+
 ## API (current)
 
-| Method | Path                   | Description              |
-|--------|------------------------|--------------------------|
-| GET    | `/api/health`           | Health check             |
-| GET    | `/api/attestations`     | List attestations (stub) |
-| POST   | `/api/attestations`     | Submit attestation (stub)|
-| GET    | `/api/analytics/periods`| List attested periods for current business (protected) |
+| Method | Path                      | Description              |
+|--------|---------------------------|--------------------------|
+| GET    | `/api/v1/health`          | Health check             |
+| GET    | `/api/v1/attestations`    | List attestations (stub) |
+| POST   | `/api/v1/attestations`    | Submit attestation (stub)|
 
 ## Project structure
 

@@ -1,0 +1,206 @@
+openapi: "3.0.0"
+info:
+  title: Veritasor Integrations API
+  version: 1.0.0
+  description: API for listing and managing external integrations (Stripe, Razorpay, Shopify).
+
+paths:
+  /integrations:
+    get:
+      summary: List available integration types
+      tags: [integrations]
+      responses:
+        '200':
+          description: Available integrations
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Integration'
+
+  /integrations/connected:
+    get:
+      summary: List connected integrations for the current user
+      tags: [integrations]
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Connected integrations
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/ConnectedIntegration'
+        '401':
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /integrations/{provider}/connect:
+    post:
+      summary: Initiate connect flow for a provider
+      tags: [integrations]
+      parameters:
+        - name: provider
+          in: path
+          required: true
+          schema:
+            type: string
+            enum: [stripe, razorpay, shopify]
+      requestBody:
+        description: Optional params for connect (e.g. redirect URL)
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ConnectRequest'
+      responses:
+        '200':
+          description: Connect flow initiated (redirect URL or client data)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ConnectResponse'
+        '400':
+          description: Invalid provider or input
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /integrations/{provider}/disconnect:
+    post:
+      summary: Disconnect a connected account for a provider
+      tags: [integrations]
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: provider
+          in: path
+          required: true
+          schema:
+            type: string
+            enum: [stripe, razorpay, shopify]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/DisconnectRequest'
+      responses:
+        '200':
+          description: Disconnected
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenericSuccess'
+        '401':
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '404':
+          description: Connected account not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+
+  schemas:
+    Integration:
+      type: object
+      properties:
+        id:
+          type: string
+          example: stripe
+        name:
+          type: string
+          example: Stripe
+        description:
+          type: string
+          example: "Payments via Stripe"
+      required: [id, name]
+
+    ConnectedIntegration:
+      type: object
+      properties:
+        id:
+          type: string
+          example: acct_abc123
+        provider:
+          type: string
+          example: stripe
+        displayName:
+          type: string
+          example: "Acme Corp"
+        connectedAt:
+          type: string
+          format: date-time
+          example: "2026-02-01T12:00:00Z"
+        meta:
+          type: object
+          additionalProperties: true
+      required: [id, provider]
+
+    ConnectRequest:
+      type: object
+      properties:
+        redirectUrl:
+          type: string
+          format: uri
+          example: "https://app.example.com/oauth/callback"
+        state:
+          type: string
+          example: "optional-csrf-state"
+
+    ConnectResponse:
+      type: object
+      properties:
+        redirectUrl:
+          type: string
+          format: uri
+          example: "https://connect.provider.com/oauth?..."
+        clientData:
+          type: object
+          description: Data the client can use to continue the flow
+
+    DisconnectRequest:
+      type: object
+      properties:
+        accountId:
+          type: string
+          description: Provider account id to disconnect
+      required: [accountId]
+
+    GenericSuccess:
+      type: object
+      properties:
+        message:
+          type: string
+          example: "ok"
+
+    Error:
+      type: object
+      properties:
+        message:
+          type: string
+        code:
+          type: string
+      required: [message]
+
+tags:
+  - name: integrations
+    description: Manage external service integrations

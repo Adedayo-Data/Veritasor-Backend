@@ -19,6 +19,7 @@ npm run test:coverage
 
 - `integration/` - Integration tests that test complete API flows
   - `auth.test.ts` - Authentication API tests (signup, login, refresh, password reset)
+  - `integrations.test.ts` - Integrations API tests (list, connect, disconnect, OAuth flow)
 
 ## Test Setup
 
@@ -38,6 +39,17 @@ The auth integration tests cover:
 5. **Forgot Password** - Initiating password reset flow
 6. **Reset Password** - Completing password reset with token
 
+## Integrations Tests
+
+The integrations integration tests cover:
+
+1. **List Available Integrations** - Get all available integrations (public endpoint)
+2. **List Connected Integrations** - Get connected integrations for authenticated business
+3. **Stripe OAuth Connect** - Initiate and complete OAuth flow
+4. **Disconnect Integration** - Remove integration connection
+5. **Authentication** - Protected routes return 401 when unauthenticated
+6. **Security** - Sensitive tokens not exposed in responses
+
 ### Mock Implementation
 
 Currently, the tests include a mock auth router since the actual auth routes are not yet implemented. The mock:
@@ -45,6 +57,12 @@ Currently, the tests include a mock auth router since the actual auth routes are
 - Simulates password hashing (prefixes with "hashed_")
 - Implements proper token validation
 - Follows security best practices (e.g., no email enumeration)
+
+The integrations tests include a mock integrations router. The mock:
+- Uses in-memory stores for connections and OAuth state
+- Simulates OAuth flow with state generation and validation
+- Implements proper authentication checks
+- Follows security best practices (no token exposure, state validation)
 
 ### When Auth Routes Are Implemented
 
@@ -57,6 +75,19 @@ import { authRouter } from '../../src/routes/auth.js'
 
 // In beforeAll:
 app.use('/api/auth', authRouter)
+```
+
+### When Integrations Routes Are Implemented
+
+Replace the mock router in `integrations.test.ts` with the actual integrations router:
+
+```typescript
+// Remove createMockIntegrationsRouter() function
+// Import actual integrations router
+import { integrationsRouter } from '../../src/routes/integrations.js'
+
+// In beforeAll:
+app.use('/api/integrations', integrationsRouter)
 ```
 
 ## Database Strategy
@@ -96,3 +127,5 @@ afterAll(async () => {
 - Don't expose sensitive information in error messages
 - Test both success and failure cases
 - Verify security requirements (401, 403, etc.)
+- Test OAuth state validation and expiration
+- Ensure tokens and credentials are not leaked in responses

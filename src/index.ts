@@ -7,7 +7,10 @@ import { analyticsRouter } from './routes/analytics.js'
 import { healthRouter } from './routes/health.js'
 import { attestationsRouter } from './routes/attestations.js'
 import { integrationsShopifyRouter } from './routes/integrations-shopify.js'
+import { errorHandler } from "./middleware/errorHandler.js";
+
 import { errorHandler } from './middleware/errorHandler.js'
+
 import { analyticsRouter } from './routes/analytics.js'
 import { authRouter } from './routes/auth.js'
 import {
@@ -37,6 +40,7 @@ import {
 import businessRoutes from "./routes/businesses.js";
 import integrationsRazorpayRouter from "./routes/integrations-razorpay.js";
 import integrationsRouter from "./routes/integrations.js";
+
 
 export const app = express()
 const PORT = process.env.PORT ?? 3000

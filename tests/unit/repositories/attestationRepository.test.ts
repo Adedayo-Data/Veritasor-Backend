@@ -128,7 +128,7 @@ class MockDbClient implements DbClient {
             idx++;
           }
         }
-        return { rows: results as T };
+        return { rows: results as T[] };
       }
 
       // Handle getByBusinessAndPeriod query

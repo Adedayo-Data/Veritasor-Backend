@@ -44,6 +44,19 @@ function mapSendResponseError(response: rpc.Api.SendTransactionResponse): string
   return 'Failed to submit Soroban transaction.';
 }
 
+/**
+ * @notice Submits an attestation root to the Soroban smart contract.
+ * @dev Builds, prepares, and optionally signs/submits a Soroban transaction.
+ * 
+ * @param params - Object containing business ID, period, Merkle root, and credentials.
+ * @param params.sourcePublicKey - The Stellar G... address of the transaction source.
+ * @param params.signerSecret - (Optional) Secret key for signing. If omitted, uses env.
+ * @param params.submit - (Optional) If false, returns unsigned XDR instead of submitting.
+ * 
+ * @return {SubmitAttestationResult} Transaction hash and optional unsigned XDR.
+ * 
+ * @throws {SorobanSubmissionError} if validation fails or RPC submission is rejected.
+ */
 export async function submitAttestation(params: SubmitAttestationParams): Promise<SubmitAttestationResult> {
   const { contractId, networkPassphrase, rpcUrl } = getSorobanConfig();
   const server = createSorobanRpcServer(rpcUrl);

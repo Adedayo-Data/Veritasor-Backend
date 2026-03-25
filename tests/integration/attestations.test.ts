@@ -91,3 +91,88 @@ test('DELETE /api/attestations/:id revoke succeeds when authenticated', async ()
   assert.strictEqual(res.body?.id, 'xyz-456')
   assert.ok(res.body?.message)
 })
+
+// ============================================================================
+// Additional Idempotency Edge Case Tests
+// ============================================================================
+
+test('POST /api/attestations returns 400 when idempotency key is missing', async () => {
+  const res = await request(app)
+    .post('/api/attestations')
+    .set(authHeader)
+    .send({ business_id: 'b1', period: '2024-01' })
+  assert.strictEqual(res.status, 400)
+  assert.ok(res.body?.code === 'IDEMPOTENCY_KEY_REQUIRED')
+})
+
+test('POST /api/attestations returns 400 when idempotency key is too short', async () => {
+  const res = await request(app)
+    .post('/api/attestations')
+    .set(authHeader)
+    .set('Idempotency-Key', 'abc')
+    .send({ business_id: 'b1', period: '2024-01' })
+  assert.strictEqual(res.status, 400)
+  assert.ok(res.body?.code === 'IDEMPOTENCY_KEY_INVALID')
+})
+
+test('POST /api/attestations returns 400 when idempotency key is too long', async () => {
+  const longKey = 'a'.repeat(300)
+  const res = await request(app)
+    .post('/api/attestations')
+    .set(authHeader)
+    .set('Idempotency-Key', longKey)
+    .send({ business_id: 'b1', period: '2024-01' })
+  assert.strictEqual(res.status, 400)
+  assert.ok(res.body?.code === 'IDEMPOTENCY_KEY_INVALID')
+})
+
+test('POST /api/attestations with whitespace in key is trimmed and accepted', async () => {
+  const res = await request(app)
+    .post('/api/attestations')
+    .set(authHeader)
+    .set('Idempotency-Key', '  whitespace-test-key-123  ')
+    .send({ business_id: 'b1', period: '2024-01' })
+  assert.strictEqual(res.status, 201)
+})
+
+test('POST /api/attestations duplicate request with different body returns same cached response', async () => {
+  const key = 'idempotent-diff-body-' + Date.now()
+  const first = await request(app)
+    .post('/api/attestations')
+    .set(authHeader)
+    .set('Idempotency-Key', key)
+    .send({ business_id: 'b1', period: '2024-01' })
+  assert.strictEqual(first.status, 201)
+  
+  // Same key but different body - should return cached response from first request
+  const second = await request(app)
+    .post('/api/attestations')
+    .set(authHeader)
+    .set('Idempotency-Key', key)
+    .send({ business_id: 'b1', period: '2024-02' }) // Different period
+  assert.strictEqual(second.status, 201)
+  // The cached response should have the first period, not the second
+  assert.strictEqual(second.body?.period, '2024-01')
+})
+
+test('POST /api/attestations error responses are not cached', async () => {
+  const key = 'error-not-cached-' + Date.now()
+  
+  // First request fails due to missing required field
+  const first = await request(app)
+    .post('/api/attestations')
+    .set(authHeader)
+    .set('Idempotency-Key', key)
+    .send({}) // Missing period which is required
+  
+  // Should be a validation error, not cached
+  assert.ok(first.status >= 400)
+  
+  // Second request with valid data should succeed (not return cached error)
+  const second = await request(app)
+    .post('/api/attestations')
+    .set(authHeader)
+    .set('Idempotency-Key', key)
+    .send({ business_id: 'b1', period: '2024-01' })
+  assert.strictEqual(second.status, 201)
+})

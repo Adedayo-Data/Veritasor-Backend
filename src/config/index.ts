@@ -1,83 +1,51 @@
 /**
- * @module config
- * @description Centralized configuration with runtime validation for all
- * critical environment variables. Fails fast on startup if any required
- * variable is missing or malformed, preventing silent misconfigurations.
- *
- * @throws {Error} If any critical environment variable is missing or invalid.
+ * App config from environment. Extend as needed.
  */
-
-import { z } from "zod";
+const isProduction = process.env.NODE_ENV === "production";
 
 /**
- * @schema envSchema
- * @description Zod schema defining all required and optional environment
- * variables for the Veritasor backend. Add new vars here as the app grows.
+ * CORS allowed origins.
+ * - Dev: * (allow all) unless ALLOWED_ORIGINS is set.
+ * - Production: ALLOWED_ORIGINS (comma-separated), or [] if unset (strict).
  */
-const envSchema = z.object({
-  // Server
-  NODE_ENV: z
-    .enum(["development", "production", "test"])
-    .default("development"),
-  PORT: z
-    .string()
-    .optional()
-    .default("3000")
-    .transform((val) => parseInt(val, 10)),
-
-  // Database
-  DATABASE_URL: z.string().min(1, "DATABASE_URL is required"),
-
-  // Auth / JWT
-  JWT_SECRET: z.string().min(32, "JWT_SECRET must be at least 32 characters"),
-
-  // Razorpay
-  RAZORPAY_KEY_ID: z.string().min(1, "RAZORPAY_KEY_ID is required"),
-  RAZORPAY_KEY_SECRET: z.string().min(1, "RAZORPAY_KEY_SECRET is required"),
-  RAZORPAY_WEBHOOK_SECRET: z
-    .string()
-    .min(1, "RAZORPAY_WEBHOOK_SECRET is required"),
-});
-
-/**
- * @typedef {z.infer<typeof envSchema>} Env
- * @description Inferred TypeScript type for the validated config object.
- */
-export type Env = z.infer<typeof envSchema>;
-
-/**
- * @function validateConfig
- * @description Parses and validates process.env against the schema.
- * Logs all missing/invalid fields at once before throwing, so developers
- * can fix everything in one pass.
- *
- * @returns {Env} Validated and typed configuration object.
- * @throws {Error} If validation fails.
- */
-function validateConfig(): Env {
-  const result = envSchema.safeParse(process.env);
-
-  if (!result.success) {
-    const issues = result.error.issues
-      .map((i) => `  - ${i.path.join(".")}: ${i.message}`)
-      .join("\n");
-
-    throw new Error(
-      `[Config] Missing or invalid environment variables:\n${issues}\n\n` +
-        `Ensure all required variables are set before starting the server.`
-    );
-  }
-
-  return result.data;
+function getAllowedOrigins(): string | string[] {
+	const raw = process.env.ALLOWED_ORIGINS;
+	if (raw) {
+		return raw
+			.split(",")
+			.map((s) => s.trim())
+			.filter(Boolean);
+	}
+	if (isProduction) {
+		return [];
+	}
+	return "*";
 }
 
-/**
- * @constant config
- * @description Validated, typed config object. Import this throughout the
- * app instead of accessing process.env directly.
- *
- * @example
- * import { config } from "../config/index.js";
- * const secret = config.JWT_SECRET;
- */
-export const config = validateConfig();
+export const config = {
+	jwtSecret: process.env.JWT_SECRET,
+	cors: {
+		origin: getAllowedOrigins(),
+	},
+	jobs: {
+		attestationReminder: {
+			// Run every minute
+			schedule: '*/1 * * * *',
+		}
+	},
+	soroban: {
+		/** Soroban RPC endpoint. Defaults to the public testnet node. */
+		rpcUrl:
+			process.env.SOROBAN_RPC_URL ?? "https://soroban-testnet.stellar.org",
+		/** Deployed attestation contract address (C…). Required in production. */
+		contractId: process.env.SOROBAN_CONTRACT_ID ?? "",
+		/**
+		 * Stellar network passphrase.
+		 * Testnet:  'Test SDF Network ; September 2015'
+		 * Mainnet:  'Public Global Stellar Network ; September 2015'
+		 */
+		networkPassphrase:
+			process.env.SOROBAN_NETWORK_PASSPHRASE ??
+			"Test SDF Network ; September 2015",
+	},
+} as const;

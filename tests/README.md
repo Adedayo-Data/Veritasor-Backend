@@ -20,6 +20,10 @@ npm run test:coverage
 - `integration/` - Integration tests that test complete API flows
   - `auth.test.ts` - Authentication API tests (signup, login, refresh, password reset)
   - `integrations.test.ts` - Integrations API tests (list, connect, disconnect, OAuth flow)
+- `unit/` - Unit tests for individual modules and services
+  - `services/revenue/` - Revenue service tests
+    - `normalize.test.ts` - Revenue data normalization tests
+    - `revenueReportSchema.test.ts` - Revenue report schema validation and security tests
 
 ## Test Setup
 
@@ -119,6 +123,47 @@ afterAll(async () => {
 })
 ```
 
+## Revenue Report Schema Tests
+
+The revenue report schema tests (`revenueReportSchema.test.ts`) cover comprehensive validation and security hardening for the `/api/analytics/revenue` endpoint query parameters.
+
+### Security Validation Coverage
+
+1. **Input Format Validation**
+   - Strict YYYY-MM format enforcement
+   - Year boundary validation (2020-2105)
+   - Month range validation (01-12)
+   - Length limits to prevent DoS attacks
+
+2. **Injection Prevention**
+   - HTML/Script injection attempts
+   - SQL injection patterns
+   - Command injection attempts
+   - Path traversal attacks
+   - XSS attempts with various encodings
+
+3. **Parameter Combination Validation**
+   - Period vs range parameter conflicts
+   - Required parameter combinations
+   - Mutual exclusivity enforcement
+
+4. **Edge Case Testing**
+   - Boundary conditions (min/max years)
+   - Malformed date strings
+   - Unicode and null byte attacks
+   - Extremely long strings
+
+### Test Categories
+
+- **Valid Inputs**: Ensure legitimate requests pass validation
+- **Invalid Format**: Reject malformed date strings
+- **Year Boundaries**: Enforce reasonable year limits
+- **Month Validation**: Proper month format and range
+- **Injection Prevention**: Block various attack vectors
+- **Parameter Combinations**: Validate parameter relationships
+- **DoS Prevention**: Prevent resource exhaustion attacks
+- **Error Types**: Verify structured error constants
+
 ## Best Practices
 
 - Test complete user flows, not just individual endpoints
@@ -129,6 +174,9 @@ afterAll(async () => {
 - Verify security requirements (401, 403, etc.)
 - Test OAuth state validation and expiration
 - Ensure tokens and credentials are not leaked in responses
+- Include comprehensive negative testing for security-critical endpoints
+- Test boundary conditions and edge cases thoroughly
+- Validate input sanitization and injection prevention
 
 ## End-to-End (E2E) Testing Plan
 

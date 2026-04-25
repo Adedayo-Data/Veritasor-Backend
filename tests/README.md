@@ -20,6 +20,10 @@ npm run test:coverage
 - `integration/` - Integration tests that test complete API flows
   - `auth.test.ts` - Authentication API tests (signup, login, refresh, password reset)
   - `integrations.test.ts` - Integrations API tests (list, connect, disconnect, OAuth flow)
+- `unit/` - Unit tests for individual modules and services
+  - `services/revenue/` - Revenue service tests
+    - `normalize.test.ts` - Revenue data normalization tests
+    - `revenueReportSchema.test.ts` - Revenue report schema validation and security tests
 
 ## Test Setup
 
@@ -119,73 +123,46 @@ afterAll(async () => {
 })
 ```
 
-## Property-Based Tests
+## Revenue Report Schema Tests
 
-Property-based tests use [fast-check](https://github.com/dubzzz/fast-check) to verify invariants across arbitrary inputs rather than fixed examples. They live alongside unit tests under `tests/unit/`.
+The revenue report schema tests (`revenueReportSchema.test.ts`) cover comprehensive validation and security hardening for the `/api/analytics/revenue` endpoint query parameters.
 
-### Stripe Store — ID Mapping (`store.property.test.ts`)
+### Security Validation Coverage
 
-File: `tests/unit/services/integrations/stripe/store.property.test.ts`
+1. **Input Format Validation**
+   - Strict YYYY-MM format enforcement
+   - Year boundary validation (2020-2105)
+   - Month range validation (01-12)
+   - Length limits to prevent DoS attacks
 
-Covers two groups of properties:
+2. **Injection Prevention**
+   - HTML/Script injection attempts
+   - SQL injection patterns
+   - Command injection attempts
+   - Path traversal attacks
+   - XSS attempts with various encodings
 
-**OAuth state store** (`setOAuthState` / `consumeOAuthState`):
-| # | Property |
-|---|---|
-| 1 | Arbitrary valid state strings round-trip correctly |
-| 2 | Tokens stored with a future expiry are consumable |
-| 3 | Boundary expiry values (1 ms, 24 h, past) behave correctly |
-| 4 | Tokens are one-time use — second consume returns `false` |
-| 5 | Re-storing the same token overwrites with the new expiry |
-| 6 | Consuming one token does not affect other tokens |
+3. **Parameter Combination Validation**
+   - Period vs range parameter conflicts
+   - Required parameter combinations
+   - Mutual exclusivity enforcement
 
-**Integration ID mapping** (`upsertStripeIntegration` / `getStripeIntegration`):
-| # | Property |
-|---|---|
-| 7 | Round-trip identity — `stripeUserId`, `accessToken`, `businessId` are returned unchanged |
-| 8 | `createdAt` and `updatedAt` are set to the current time on first insert and are equal |
-| 9 | Re-upserting preserves `createdAt`; `updatedAt` is ≥ the original value |
-| 10 | Distinct `stripeUserId` keys are stored and retrieved independently |
-| 11 | An unknown `stripeUserId` returns `undefined` |
-| 12 | Large/boundary field values (long tokens, long business IDs) are not truncated |
+4. **Edge Case Testing**
+   - Boundary conditions (min/max years)
+   - Malformed date strings
+   - Unicode and null byte attacks
+   - Extremely long strings
 
-**Arbitraries used:**
-- `stripeUserIdArb` — `acct_` + 16 alphanumeric chars (mirrors Stripe's OAuth `stripe_user_id`)
-- `accessTokenArb` — `sk_test_` or `sk_live_` prefix + random hex suffix
-- `businessIdArb` — `biz_` + random hex suffix
+### Test Categories
 
-**Edge cases exercised:** missing optional fields, type mismatches via `fc.pre` guards, large metadata blobs (Properties 11–12).
-
-## Threat Model
-
-### Authentication
-
-| Threat | Mitigation |
-|---|---|
-| JWT forgery | Tokens are signed with `HS256`; `verifyToken` rejects any token with an invalid signature or missing `sub`/`iat` claims |
-| Token replay after logout | Refresh tokens are single-use; the store deletes them on consumption |
-| Brute-force login | Per-IP rate limiting with progressive backoff (`signupRateLimiter`, shared `rateLimiter`) |
-| Expired access token reuse | `verifyToken` checks `exp`; middleware returns `401 INVALID_TOKEN` on expiry |
-| Password enumeration | `forgotPassword` returns the same response regardless of whether the email exists |
-
-### Webhooks
-
-| Threat | Mitigation |
-|---|---|
-| Forged Razorpay webhook | `verifyRazorpaySignature` computes `HMAC-SHA256(body, RAZORPAY_WEBHOOK_SECRET)` and compares with `X-Razorpay-Signature` using a timing-safe comparison |
-| Replay attack | Razorpay includes an `event.id`; handlers should deduplicate on this ID before processing (not yet enforced — track as open item) |
-| Oversized payload | Express `json()` middleware limits body size; webhook routes should apply a stricter limit (e.g. `express.json({ limit: '64kb' })`) |
-
-### Integrations (Stripe / Shopify / Razorpay)
-
-| Threat | Mitigation |
-|---|---|
-| OAuth CSRF | A 64-char hex `state` token is generated, stored with a TTL, and validated on callback via `consumeOAuthState` (one-time use) |
-| State token enumeration | `isValidStripeOAuthState` rejects any token that is not exactly 64 lowercase hex chars before touching the store |
-| Leaked access tokens in logs | `store.ts` never logs token values; structured logger omits fields matching sensitive key patterns |
-| Stale OAuth state reuse | State tokens expire (configurable TTL); `consumeOAuthState` deletes the token before checking expiry, preventing TOCTOU |
-| Cross-user token access | Integration records are keyed by `stripeUserId` and scoped to `userId` in the repository layer; the callback handler verifies ownership before upsert |
-| Empty / malformed IDs stored | `upsertStripeIntegration` and `setOAuthState` throw `StripeStoreValidationError` on empty or non-string inputs — no silent failures |
+- **Valid Inputs**: Ensure legitimate requests pass validation
+- **Invalid Format**: Reject malformed date strings
+- **Year Boundaries**: Enforce reasonable year limits
+- **Month Validation**: Proper month format and range
+- **Injection Prevention**: Block various attack vectors
+- **Parameter Combinations**: Validate parameter relationships
+- **DoS Prevention**: Prevent resource exhaustion attacks
+- **Error Types**: Verify structured error constants
 
 ## Best Practices
 
@@ -197,6 +174,9 @@ Covers two groups of properties:
 - Verify security requirements (401, 403, etc.)
 - Test OAuth state validation and expiration
 - Ensure tokens and credentials are not leaked in responses
+- Include comprehensive negative testing for security-critical endpoints
+- Test boundary conditions and edge cases thoroughly
+- Validate input sanitization and injection prevention
 
 ## End-to-End (E2E) Testing Plan
 
@@ -252,3 +232,59 @@ The following security assumptions are baked into the system and must be validat
 4. **Idempotency Integrity**:
     - *Assumption*: Multiple identical requests do not result in multiple on-chain transactions (saving gas/fees).
     - *Validation*: Check local database for single record entry after multiple POST bursts.
+    
+## Read Consistency & Security
+
+Veritasor implements a multi-tier consistency model for reading attestations to balance performance and security.
+
+### Consistency Levels
+
+1.  **LOCAL (Default)**:
+    -   Reads directly from the PostgreSQL database.
+    -   Lowest latency, suitable for most dashboard views.
+    -   Subject to indexing lag (DB might be a few blocks behind the chain).
+
+2.  **STRONG**:
+    -   Reads from the DB and then verifies the record against the Soroban blockchain state.
+    -   Higher latency (requires RPC calls).
+    -   Guarantees the data matches the "Truth on Chain".
+    -   Used for critical audits and legal proof generation.
+
+### Threat Model & Resilience Notes
+
+| Threat | Strategy | Mechanism |
+| :--- | :--- | :--- |
+| **Indexing Lag** | Detection & Auto-Correction | If a STRONG read finds a record on-chain that is still marked as `pending` in the DB, the system auto-updates the DB to `confirmed`. |
+| **Data Tampering** | Integrity Verification | If a STRONG read detects a Merkle root mismatch between the DB and the Chain, it logs a CRITICAL CONSISTENCY ERROR for immediate operator review. |
+| **Revocation Propagation** | Immediate Verification | STRONG reads ensure that if an attestation is revoked on-chain, it is treated as revoked by the system regardless of DB state. |
+| **Network Outage** | Graceful Degradation | If the Soroban RPC is unavailable during a STRONG read, the system falls back to LOCAL data and logs a warning. |
+
+### Operator Runbook: Discrepancies
+
+If a `CRITICAL CONSISTENCY ERROR` is observed in logs:
+1.  Verify the on-chain data using a block explorer or `stellar-cli`.
+2.  Check the database for unauthorized modifications.
+3.  Initiate a manual re-sync if the DB record is corrupted.
+
+## Email Security & Template Hardening
+
+The email service implements strict validation and sanitization to prevent injection attacks.
+
+### Injection Prevention
+
+1.  **Input Validation (Zod)**:
+    -   All emails are validated against the `z.string().email()` schema.
+    -   Reset links are validated to ensure they use safe protocols (`https:` or `http:` in dev). Unsafe protocols like `javascript:` or `data:` are rejected.
+
+2.  **HTML Escaping**:
+    -   All dynamic values interpolated into HTML templates are escaped using a dedicated `escapeHtml` utility.
+    -   This prevents attackers from injecting malicious HTML tags (e.g., `<script>`, `<iframe>`, `<img>`) even if they manage to partially control the link or other parameters.
+
+### Threat Model: Email Risks
+
+| Threat | Strategy | Mechanism |
+| :--- | :--- | :--- |
+| **HTML Injection** | Sanitization | `escapeHtml` converts `<`, `>`, `&`, `"`, and `'` into entities. |
+| **Link Wrapping/Phishing** | Protocol Gating | Only allowed protocols are permitted; others trigger a validation error. |
+| **Header Injection** | SMTP Library Safety | Use of `nodemailer` which handles header sanitization internally, combined with Zod validation of the `to` field. |
+| **Information Leakage** | Dev Stubs | In development mode, reset links are logged to the console instead of sent, and the `to` address is never leaked in unauthorized contexts. |

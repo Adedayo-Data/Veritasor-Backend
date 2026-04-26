@@ -1,6 +1,8 @@
-# Integration Tests
+# Tests — Veritasor Backend
 
-This directory contains integration tests for the Veritasor Backend API.
+This directory contains unit and integration tests for the Veritasor Backend API.
+
+---
 
 ## Running Tests
 
@@ -15,6 +17,8 @@ npm run test:watch
 npm run test:coverage
 ```
 
+---
+
 ## Test Structure
 
 - `integration/` - Integration tests that test complete API flows
@@ -25,73 +29,69 @@ npm run test:coverage
     - `normalize.test.ts` - Revenue data normalization tests
     - `revenueReportSchema.test.ts` - Revenue report schema validation and security tests
 
-## Test Setup
+---
 
-Tests use:
-- **Jest** - Test framework
-- **Supertest** - HTTP assertion library for testing Express apps
-- **ts-jest** - TypeScript support for Jest
+## Unit Tests — Revenue Services
 
-## Auth Tests
+### `normalize.test.ts`
 
-The auth integration tests cover:
+Covers two source files:
 
-1. **User Signup** - Creating new user accounts
-2. **User Login** - Authentication with credentials
-3. **Token Refresh** - Refreshing access tokens
-4. **Get Current User** - Fetching authenticated user info
-5. **Forgot Password** - Initiating password reset flow
-6. **Reset Password** - Completing password reset with token
+| Module | Function | Description |
+|--------|----------|-------------|
+| `normalize.ts` | `normalizeRevenueEntry` | Canonical shape, currency/date/amount edge cases |
+| `normalize.ts` | `detectNormalizationDrift` | Batch drift detection against a statistical baseline |
+| `anomalyDetection.ts` | `detectRevenueAnomaly` | MoM anomaly scoring with configurable thresholds |
+| `anomalyDetection.ts` | `calibrateFromSeries` | Derive thresholds from historical training data |
 
-## Integrations Tests
+#### Coverage target
 
-The integrations integration tests cover:
+≥ 95% line and branch coverage on all touched modules where practical.
+Run `npm run test:coverage` to verify; the coverage report is emitted to `coverage/`.
 
-1. **List Available Integrations** - Get all available integrations (public endpoint)
-2. **List Connected Integrations** - Get connected integrations for authenticated business
-3. **Stripe OAuth Connect** - Initiate and complete OAuth flow
-4. **Disconnect Integration** - Remove integration connection
-5. **Authentication** - Protected routes return 401 when unauthenticated
-6. **Security** - Sensitive tokens not exposed in responses
+---
 
-### Mock Implementation
+## Anomaly Detection — Operator Tuning
 
-Currently, the tests include a mock auth router since the actual auth routes are not yet implemented. The mock:
-- Uses in-memory stores for users, tokens, and reset tokens
-- Simulates password hashing (prefixes with "hashed_")
-- Implements proper token validation
-- Follows security best practices (e.g., no email enumeration)
+### Environment Variables
 
-The integrations tests include a mock integrations router. The mock:
-- Uses in-memory stores for connections and OAuth state
-- Simulates OAuth flow with state generation and validation
-- Implements proper authentication checks
-- Follows security best practices (no token exposure, state validation)
+All threshold defaults for `detectRevenueAnomaly` and `calibrateFromSeries` can be
+overridden at process start via environment variables. Set them in `.env` (copy from
+`.env.example`) before the service boots; changes take effect on the next restart.
 
-### When Auth Routes Are Implemented
+| Variable | Type | Default | Description |
+|---|---|---|---|
+| `ANOMALY_DROP_THRESHOLD` | float | `0.4` | MoM fractional drop that triggers `unusual_drop`. E.g. `0.3` = flag when revenue falls ≥ 30%. Must be in `(0, 1]`. |
+| `ANOMALY_SPIKE_THRESHOLD` | float | `3.0` | MoM fractional rise that triggers `unusual_spike`. E.g. `2.0` = flag when revenue rises ≥ 200%. Must be `> 0`. |
+| `ANOMALY_MIN_DATA_POINTS` | int | `2` | Minimum series length required for detection. Must be an integer `≥ 2`. |
+| `ANOMALY_CALIBRATION_SIGMA` | float | `2.0` | Std-dev multiplier used by `calibrateFromSeries`. Must be `> 0`. |
 
-Replace the mock router in `auth.test.ts` with the actual auth router:
+**Validation behaviour** — if an env-var value fails validation (wrong type, out of
+range, empty string), the module falls back silently to the hard-coded default and
+emits a warning to `stderr`. No exception is thrown.
 
-```typescript
-// Remove createMockAuthRouter() function
-// Import actual auth router
-import { authRouter } from '../../src/routes/auth.js'
+Example `.env` entries:
 
-// In beforeAll:
-app.use('/api/auth', authRouter)
+```dotenv
+ANOMALY_DROP_THRESHOLD=0.30
+ANOMALY_SPIKE_THRESHOLD=2.00
+ANOMALY_MIN_DATA_POINTS=3
+ANOMALY_CALIBRATION_SIGMA=2.5
 ```
 
-### When Integrations Routes Are Implemented
+---
 
-Replace the mock router in `integrations.test.ts` with the actual integrations router:
+### Calibration API
 
-```typescript
-// Remove createMockIntegrationsRouter() function
-// Import actual integrations router
-import { integrationsRouter } from '../../src/routes/integrations.js'
+Use `calibrateFromSeries` to derive statistically-grounded thresholds from at least
+12 months of historical revenue data and then pass the result into
+`detectRevenueAnomaly`:
 
-// In beforeAll:
-app.use('/api/integrations', integrationsRouter)
+```ts
+import { calibrateFromSeries, detectRevenueAnomaly } from './src/services/revenue/anomalyDetection.js';
+
+const cal = calibrateFromSeries(historicalSeries, { sigmaMultiplier: 2 });
+const result = detectRevenueAnomaly(currentSeries, cal);
 ```
 
 ## Soroban RPC Client Configuration
@@ -152,24 +152,107 @@ const hooks: SorobanObservabilityHooks = {
 }
 ```
 
-Example setup:
+---
+
+## Security — Threat Model Notes
+
+### Anomaly Detection
+
+#### Spike Attacks
+An adversary submitting artificially inflated revenue figures (to obscure a real
+drop later) will surface as `unusual_spike` first. Pair anomaly detection with
+source-level webhook signature verification so that only authenticated payloads
+reach `detectRevenueAnomaly`.
+
+#### Replay Attacks on Baselines
+`calibrateFromSeries` is a pure function — it does not persist state. Callers are
+responsible for persisting and versioning `CalibrationResult` objects. An attacker
+who can force a recalibration using manipulated historical data could widen
+thresholds and suppress future anomaly flags. Store calibration results under
+authenticated access control and avoid accepting untrusted series as training data.
+
+#### Env-Var Injection
+Threshold env vars are read once at module load and validated strictly. An attacker
+who can modify process environment variables before boot could widen thresholds.
+Treat your deployment secrets and runtime environment accordingly.
+
+#### Log Injection
+The `detail` string in `AnomalyResult` and the `AnomalyLogRecord` payload embed
+`period` and `amount` values from the caller-supplied input series. Ensure your log
+aggregator escapes or sanitises these fields before rendering them in dashboards
+or alert messages.
+
+### Auth Routes
+
+- JWT tokens must be validated on every request; user existence is re-verified
+  against the database to detect revoked accounts.
+- Rate limiting is applied per route bucket (see `src/middleware/rateLimiter.ts`);
+  auth endpoints (login, refresh, forgot-password, reset-password) use named buckets
+  so bursts against one endpoint cannot exhaust the shared budget for another.
+- Password reset tokens must be single-use and short-lived (< 15 minutes).
+- Signup uses a dedicated abuse-prevention limiter stricter than the shared bucket.
+
+### Webhooks & Integrations
+
+- OAuth state parameters must be validated and be single-use to prevent CSRF.
+- Integration tokens and credentials must never appear in API responses or logs;
+  the E2E suite includes sensitive-string assertions to enforce this.
+- Idempotency keys on attestation submissions prevent duplicate on-chain
+  transactions under burst conditions.
+
+---
+
+## Integration Tests
+
+### Auth Tests (`integration/auth.test.ts`)
+
+| Scenario | Description |
+|---|---|
+| User Signup | Creating new user accounts |
+| User Login | Authentication with credentials |
+| Token Refresh | Refreshing access tokens |
+| Get Current User | Fetching authenticated user info |
+| Forgot Password | Initiating password reset flow |
+| Reset Password | Completing password reset with token |
+
+### Integrations Tests (`integration/integrations.test.ts`)
+
+| Scenario | Description |
+|---|---|
+| List Available Integrations | Get all available integrations (public endpoint) |
+| List Connected Integrations | Get connected integrations for authenticated business |
+| Stripe OAuth Connect | Initiate and complete OAuth flow |
+| Disconnect Integration | Remove integration connection |
+| Authentication | Protected routes return 401 when unauthenticated |
+| Security | Sensitive tokens not exposed in responses |
+
+### Mock Implementation
+
+Auth and integrations tests use in-memory mock routers until the real routes are
+implemented. To switch to real routes, see the comments at the top of each test file.
+
+---
+
+## Database Strategy
+
+For integration tests with a real database:
 
 ```typescript
 beforeAll(async () => {
-  await db.migrate.latest()
-})
+  await db.migrate.latest();
+});
 
 beforeEach(async () => {
-  await db.raw('BEGIN')
-})
+  await db.raw('BEGIN');
+});
 
 afterEach(async () => {
-  await db.raw('ROLLBACK')
-})
+  await db.raw('ROLLBACK');
+});
 
 afterAll(async () => {
-  await db.destroy()
-})
+  await db.destroy();
+});
 ```
 
 ## Revenue Report Schema Tests
@@ -259,56 +342,47 @@ entropy.
   refresh tokens, API keys, merchant credentials, and database connection
   details from both API responses and routine structured logs.
 
+- Test complete user flows, not just individual endpoints.
+- Use descriptive test names that document the expected scenario.
+- Clean up test data between tests; never rely on test ordering.
+- Do not expose sensitive information (tokens, keys, passwords) in error messages
+  or test assertions.
+- Test both success and failure cases, including boundary conditions.
+- Verify security requirements (401, 403, rate-limit headers, etc.).
+- Test OAuth state validation and expiration.
+- Ensure tokens and credentials are not leaked in responses.
+
+---
+
 ## End-to-End (E2E) Testing Plan
 
-The E2E tests verify the complete system flow, including the API, backend services, database, and Soroban contract interactions.
-
-### Testing Philosophy
-E2E tests should focus on the "Happy Path" user journeys and critical failure points that integration tests might miss due to mocks.
-
-### E2E Scenarios
+### Scenarios
 
 #### 1. Complete Attestation Lifecycle
-- **Goal**: Verify a merchant can fetch revenue and submit a verified attestation on-chain.
-- **Steps**:
-    1. Merchant logs into the dashboard.
-    2. Merchant initiates a sync for a specific period (e.g., "2025-Q1").
-    3. Backend fetches data from connected integrations (Shopify/Razorpay).
-    4. Backend generates a Merkle root.
-    5. Backend submits the root to the Soroban contract.
-    6. Verify the transaction hash is recorded and the root is queryable on the Stellar network.
+1. Merchant logs in and initiates a sync for a specific period.
+2. Backend fetches data from connected integrations (Shopify / Razorpay).
+3. Backend generates a Merkle root.
+4. Backend submits the root to the Soroban contract.
+5. Verify the transaction hash is recorded and the root is queryable on Stellar.
 
 #### 2. Multi-Source Integration Sync
-- **Goal**: Ensure revenue data from multiple sources is correctly aggregated.
-- **Steps**:
-    1. User connects both Stripe and Shopify.
-    2. Initiate a consolidated sync.
-    3. Verify that the Merkle tree leaves contain data from both sources accurately.
+1. User connects both Stripe and Shopify.
+2. Initiate a consolidated sync.
+3. Verify Merkle tree leaves contain data from both sources accurately.
 
-### Security & Resilience Testing
-- **Rate Limiting**: Verify that excessive requests from a single IP/User are throttled.
-- **Idempotency**: Ensure that re-submitting an attestation with the same `Idempotency-Key` does not create duplicate on-chain transactions.
-- **Auth Resilience**: Test deep-link authentication and token rotation flows.
+### Security & Resilience
+
+- **Rate Limiting** — verify excessive requests from a single IP/user are throttled.
+- **Idempotency** — re-submitting an attestation with the same `Idempotency-Key`
+  must not create duplicate on-chain transactions.
+- **Auth Resilience** — test deep-link auth and token rotation flows.
 
 ### Performance & Scaling
-- **Load Testing**: Simulate 100+ concurrent attestation submissions to ensure the Soroban RPC and DB pool can handle the load.
-- **Large Dataset Aggregation**: Test sync operations with 10,000+ line items.
 
-## Security Assumptions & Validations
+- **Load Testing** — 100+ concurrent attestation submissions.
+- **Large Dataset Aggregation** — sync with 10 000+ line items.
 
-The following security assumptions are baked into the system and must be validated by the E2E suite:
-
-1. **Isolation of Business Data**:
-    - *Assumption*: A user cannot sync or view revenue for a business they do not own.
-    - *Validation*: E2E tests must attempt unauthorized sync requests and verify `403 Forbidden` responses.
-
-2. **Tamper-Proof Merkle Proofs**:
-    - *Assumption*: The Merkle root submitted on-chain accurately represents the source data.
-    - *Validation*: Verify that changing a single revenue entry locally results in a Merkle proof mismatch against the on-chain root.
-
-3. **Key Management**:
-    - *Assumption*: Private keys are never exposed in logs or API responses.
-    - *Validation*: Audit log assertions in E2E tests must scan for sensitive strings (G... or S... keys).
+### Security Assumptions
 
 4. **Idempotency Integrity**:
     - *Assumption*: Multiple identical requests do not result in multiple on-chain transactions (saving gas/fees).
